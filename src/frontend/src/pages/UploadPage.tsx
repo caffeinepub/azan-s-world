@@ -17,6 +17,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ExternalBlob } from "../backend";
+import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useCreateVideo } from "../hooks/useQueries";
 
@@ -33,6 +34,7 @@ const CATEGORIES = [
 
 export function UploadPage() {
   const { identity } = useInternetIdentity();
+  const { actor, isFetching: isActorLoading } = useActor();
   const navigate = useNavigate();
   const createVideo = useCreateVideo();
 
@@ -54,8 +56,16 @@ export function UploadPage() {
 
   if (!identity) return null;
 
+  const isNotReady = !actor || isActorLoading;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isNotReady) {
+      toast.error(
+        "Still connecting to the server. Please wait a moment and try again.",
+      );
+      return;
+    }
     if (!title.trim()) {
       toast.error("Title is required");
       return;
@@ -139,6 +149,15 @@ export function UploadPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {isNotReady && (
+              <div
+                className="flex items-center gap-2 text-sm text-muted-foreground mb-4 p-3 rounded-md bg-secondary/60"
+                data-ocid="upload.loading_state"
+              >
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>Connecting to server, please wait...</span>
+              </div>
+            )}
             <form
               onSubmit={(e) => {
                 void handleSubmit(e);
@@ -342,10 +361,15 @@ export function UploadPage() {
               <Button
                 type="submit"
                 data-ocid="upload.submit_button"
-                disabled={isUploading || createVideo.isPending}
+                disabled={isUploading || createVideo.isPending || isNotReady}
                 className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
               >
-                {isUploading || createVideo.isPending ? (
+                {isNotReady ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : isUploading || createVideo.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Uploading...
