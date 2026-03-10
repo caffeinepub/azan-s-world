@@ -69,6 +69,12 @@ export function UploadPage() {
       return;
     }
 
+    if (videoFile.size > 100 * 1024 * 1024) {
+      toast.warning("Large files may take several minutes to upload.");
+    }
+
+    setThumbProgress(0);
+    setVideoProgress(0);
     setIsUploading(true);
     try {
       const thumbBytes = new Uint8Array(await thumbnailFile.arrayBuffer());
@@ -98,8 +104,10 @@ export function UploadPage() {
       toast.success("Video uploaded successfully!");
       void navigate({ to: "/", search: { q: undefined } });
     } catch (err) {
-      console.error(err);
-      toast.error("Upload failed. Please try again.");
+      console.error("Upload error:", err);
+      const message =
+        err instanceof Error ? err.message : "Upload failed. Please try again.";
+      toast.error(message);
     } finally {
       setIsUploading(false);
     }
@@ -250,8 +258,11 @@ export function UploadPage() {
                     />
                   </Label>
                 )}
-                {isUploading && thumbProgress > 0 && (
-                  <div className="space-y-1">
+                {isUploading && (
+                  <div
+                    className="space-y-1"
+                    data-ocid="upload.thumbnail.loading_state"
+                  >
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Uploading thumbnail</span>
                       <span>{thumbProgress}%</span>
@@ -313,8 +324,11 @@ export function UploadPage() {
                     />
                   </Label>
                 )}
-                {isUploading && videoProgress > 0 && (
-                  <div className="space-y-1">
+                {isUploading && (
+                  <div
+                    className="space-y-1"
+                    data-ocid="upload.video.loading_state"
+                  >
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Uploading video</span>
                       <span>{videoProgress}%</span>
