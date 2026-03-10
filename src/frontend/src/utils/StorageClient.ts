@@ -1,5 +1,12 @@
-import { type HttpAgent, isV3ResponseBody } from "@icp-sdk/core/agent";
+import {
+  Certificate,
+  type HttpAgent,
+  RequestStatusResponseStatus,
+  isV3ResponseBody,
+  lookupResultToBuffer,
+} from "@icp-sdk/core/agent";
 import { IDL } from "@icp-sdk/core/candid";
+import { Principal } from "@icp-sdk/core/principal";
 
 type Headers = Record<string, string>;
 
@@ -487,12 +494,87 @@ export class StorageClient {
       methodName: "_caffeineStorageCreateCertificate",
       arg: args,
     });
-    const respone = result.response.body;
-    if (isV3ResponseBody(respone)) {
-      console.log("Certificate:", respone.certificate);
-      return respone.certificate;
+    const responseBody = result.response.body;
+    if (isV3ResponseBody(responseBody)) {
+      return responseBody.certificate as Uint8Array;
     }
-    throw new Error("Expected v3 response body");
+
+    // v3 sync call was not available (boundary node returned v2 async response).
+    // Poll via readState until the canister replies and we can get the certificate.
+    return await this.pollForCertificate(result.requestId);
+  }
+
+  private async pollForCertificate(requestId: Uint8Array): Promise<Uint8Array> {
+    const statusPath = [
+      new TextEncoder().encode("request_status"),
+      requestId,
+      new TextEncoder().encode("status"),
+    ];
+    const replyPath = [
+      new TextEncoder().encode("request_status"),
+      requestId,
+      new TextEncoder().encode("reply"),
+    ];
+    const readPaths = [[new TextEncoder().encode("request_status"), requestId]];
+
+    const MAX_POLL_ATTEMPTS = 30;
+    const POLL_INTERVAL_MS = 1000;
+
+    for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+      const stateResponse = await this.agent.readState(this.backendCanisterId, {
+        paths: readPaths,
+      });
+
+      const rawCertificate = stateResponse.certificate as Uint8Array;
+
+      if (rawCertificate && this.agent.rootKey) {
+        try {
+          const cert = await Certificate.create({
+            certificate: rawCertificate,
+            rootKey: this.agent.rootKey,
+            canisterId: Principal.fromText(this.backendCanisterId),
+            agent: this.agent,
+          });
+
+          const statusBuf = lookupResultToBuffer(cert.lookup_path(statusPath));
+          if (statusBuf) {
+            const status = new TextDecoder().decode(statusBuf);
+            if (status === RequestStatusResponseStatus.Replied) {
+              // Verify the reply exists
+              const replyBuf = lookupResultToBuffer(
+                cert.lookup_path(replyPath),
+              );
+              if (replyBuf) {
+                return rawCertificate;
+              }
+            } else if (
+              status === RequestStatusResponseStatus.Rejected ||
+              status === RequestStatusResponseStatus.Done
+            ) {
+              throw new Error(
+                `Certificate request ${status}: canister rejected the request`,
+              );
+            }
+          }
+        } catch (e) {
+          // If cert verification fails, continue polling
+          if (
+            e instanceof Error &&
+            (e.message.includes("rejected") || e.message.includes("canister"))
+          ) {
+            throw e;
+          }
+        }
+      }
+
+      if (attempt < MAX_POLL_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+    }
+
+    throw new Error(
+      "Timed out waiting for canister certificate. Please try again.",
+    );
   }
 
   public async putFile(
