@@ -26,13 +26,24 @@ export function useActor() {
       };
 
       const actor = await createActorWithConfig(actorOptions);
-      const adminToken = getSecretParameter("caffeineAdminToken") || "";
-      await actor._initializeAccessControlWithSecret(adminToken);
+      // Try to initialize access control but don't block actor availability if it fails
+      try {
+        const adminToken = getSecretParameter("caffeineAdminToken") || "";
+        await Promise.race([
+          actor._initializeAccessControlWithSecret(adminToken),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error("timeout")), 8000),
+          ),
+        ]);
+      } catch (e) {
+        console.warn("Access control init skipped:", e);
+      }
       return actor;
     },
     // Only refetch when identity changes
     staleTime: Number.POSITIVE_INFINITY,
-    // This will cause the actor to be recreated when the identity changes
+    retry: 2,
+    retryDelay: 1000,
     enabled: true,
   });
 
