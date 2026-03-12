@@ -45,10 +45,12 @@ export function useGetVideo(id: bigint) {
   return useQuery<VideoTuple>({
     queryKey: ["video", id.toString()],
     queryFn: async () => {
-      if (!actor) throw new Error("No actor");
+      if (!actor) return Promise.reject(new Error("No actor"));
       return actor.getVideo(id);
     },
     enabled: !!actor && !isFetching,
+    retry: 1,
+    retryDelay: 1000,
   });
 }
 

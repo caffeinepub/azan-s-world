@@ -1,5 +1,8 @@
-export function timeAgo(timestamp: bigint): string {
-  const ms = Number(timestamp / BigInt(1_000_000));
+export function timeAgo(timestamp: bigint | number): string {
+  const ms =
+    typeof timestamp === "bigint"
+      ? Number(timestamp / BigInt(1_000_000))
+      : Math.floor(timestamp / 1_000_000);
   const now = Date.now();
   const diff = now - ms;
   const seconds = Math.floor(diff / 1000);
@@ -15,8 +18,8 @@ export function timeAgo(timestamp: bigint): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
-export function formatCount(n: bigint): string {
-  const num = Number(n);
+export function formatCount(n: bigint | number): string {
+  const num = typeof n === "bigint" ? Number(n) : n;
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
   return num.toString();

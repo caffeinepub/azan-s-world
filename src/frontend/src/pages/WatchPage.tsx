@@ -30,7 +30,7 @@ export function WatchPage() {
   const { id } = useParams({ from: "/watch/$id" });
   const videoId = BigInt(id);
 
-  const { data: videoTuple, isLoading } = useGetVideo(videoId);
+  const { data: videoTuple, isLoading, isError } = useGetVideo(videoId);
   const { data: comments, isLoading: commentsLoading } =
     useGetComments(videoId);
   const likeMutation = useLikeVideo();
@@ -40,6 +40,8 @@ export function WatchPage() {
   const [descExpanded, setDescExpanded] = useState(false);
   const [authorName, setAuthorName] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoLoading, setVideoLoading] = useState(false);
   const viewCounted = useRef(false);
   const incrementViewRef = useRef(incrementView.mutate);
   const videoIdRef = useRef(videoId);
@@ -50,6 +52,59 @@ export function WatchPage() {
       incrementViewRef.current(videoIdRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (!videoTuple) return;
+    const [video] = videoTuple;
+    let objectUrl = "";
+
+    setVideoLoading(true);
+    video.videoBlob
+      .getBytes()
+      .then((bytes: Uint8Array) => {
+        // Try mp4 first
+        const blob = new Blob([bytes.buffer as ArrayBuffer], {
+          type: "video/mp4",
+        });
+        objectUrl = URL.createObjectURL(blob);
+        setVideoUrl(objectUrl);
+      })
+      .catch(() => {
+        // Fallback: create blob without explicit type
+        try {
+          const blob = new Blob([new Uint8Array(0)]);
+          objectUrl = URL.createObjectURL(blob);
+          setVideoUrl(objectUrl);
+        } catch {
+          setVideoUrl("");
+        }
+      })
+      .finally(() => {
+        setVideoLoading(false);
+      });
+
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [videoTuple]);
+
+  const handleVideoError = () => {
+    if (!videoTuple) return;
+    const [video] = videoTuple;
+    // Retry with webm mime type
+    video.videoBlob
+      .getBytes()
+      .then((bytes: Uint8Array) => {
+        const blob = new Blob([bytes.buffer as ArrayBuffer], {
+          type: "video/webm",
+        });
+        const url = URL.createObjectURL(blob);
+        setVideoUrl(url);
+      })
+      .catch(() => {
+        // silent — keep existing url
+      });
+  };
 
   const handleLike = () => {
     likeMutation.mutate(videoId, {
@@ -86,6 +141,25 @@ export function WatchPage() {
     );
   }
 
+  if (isError) {
+    return (
+      <main
+        className="max-w-5xl mx-auto px-4 py-16 text-center"
+        data-ocid="watch.error_state"
+      >
+        <h2 className="font-display text-2xl font-bold mb-2">
+          Could not load video
+        </h2>
+        <p className="text-muted-foreground mb-6">
+          There was a problem fetching this video. Please try again later.
+        </p>
+        <Link to="/" search={{ q: undefined }}>
+          <Button>Go Home</Button>
+        </Link>
+      </main>
+    );
+  }
+
   if (!videoTuple) {
     return (
       <main className="max-w-5xl mx-auto px-4 py-16 text-center">
@@ -100,7 +174,9 @@ export function WatchPage() {
   }
 
   const [video, viewCount, likeCount] = videoTuple;
-  const videoUrl = video.videoBlob.getDirectURL();
+
+  const tags = video.tags ?? [];
+  const description = video.description ?? "";
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-6">
@@ -121,12 +197,21 @@ export function WatchPage() {
         transition={{ duration: 0.4 }}
       >
         <div className="relative rounded-xl overflow-hidden bg-black shadow-card mb-6">
+          {videoLoading && (
+            <div
+              className="absolute inset-0 flex items-center justify-center bg-black/80 z-10"
+              data-ocid="watch.video.loading_state"
+            >
+              <Loader2 className="w-10 h-10 text-white animate-spin" />
+            </div>
+          )}
           {/* biome-ignore lint/a11y/useMediaCaption: captions not available for user-uploaded content */}
           <video
-            src={videoUrl}
+            src={videoUrl || undefined}
             controls
             className="w-full aspect-video"
             preload="metadata"
+            onError={handleVideoError}
           >
             Your browser does not support the video element.
           </video>
@@ -173,9 +258,9 @@ export function WatchPage() {
         </div>
 
         {/* Tags */}
-        {video.tags.length > 0 && (
+        {tags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
-            {video.tags.map((tag) => (
+            {tags.map((tag) => (
               <Badge
                 key={tag}
                 variant="outline"
@@ -188,7 +273,7 @@ export function WatchPage() {
         )}
 
         {/* Description */}
-        {video.description && (
+        {description && (
           <div className="bg-card rounded-lg p-4">
             <AnimatePresence initial={false}>
               <motion.p
@@ -196,10 +281,10 @@ export function WatchPage() {
                   !descExpanded ? "line-clamp-3" : ""
                 }`}
               >
-                {video.description}
+                {description}
               </motion.p>
             </AnimatePresence>
-            {video.description.length > 200 && (
+            {description.length > 200 && (
               <button
                 type="button"
                 onClick={() => setDescExpanded(!descExpanded)}
@@ -313,7 +398,10 @@ export function WatchPage() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 text-muted-foreground">
+          <div
+            className="text-center py-12 text-muted-foreground"
+            data-ocid="watch.comment.empty_state"
+          >
             <MessageCircle className="w-10 h-10 mx-auto mb-3 opacity-20" />
             <p>No comments yet. Be the first!</p>
           </div>
